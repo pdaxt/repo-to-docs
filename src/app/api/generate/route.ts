@@ -199,14 +199,17 @@ ${fileListStr}
 KEY FILE CONTENTS:
 ${keyFilesStr}
 
-Generate documentation in the following JSON format:
-{
-  "readme": "A comprehensive README.md with: project title, description, features, installation, usage examples, configuration options, and contributing guidelines. Use proper markdown formatting.",
-  "gettingStarted": "A beginner-friendly getting started guide with: prerequisites, step-by-step installation, first run instructions, common commands, and troubleshooting tips. Use proper markdown formatting.",
-  "apiDocs": "API documentation covering: available endpoints/functions, parameters, return values, and code examples. If no API is detected, document the main exports/modules. Use proper markdown formatting."
-}
+Generate THREE separate documentation files. Return a JSON object with these exact keys:
+- "readme": Full README.md content (markdown)
+- "gettingStarted": Getting started guide (markdown)
+- "apiDocs": API documentation (markdown)
 
-Respond ONLY with valid JSON. Make the documentation detailed, professional, and immediately useful.`;
+Requirements:
+1. README: Include project title, description, features list, installation steps, usage examples
+2. Getting Started: Prerequisites, step-by-step setup, first run, common commands
+3. API Docs: Document any API endpoints, functions, or main exports with examples
+
+IMPORTANT: Return ONLY a raw JSON object, no markdown code blocks, no extra text. Start with { and end with }.`;
 
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -243,13 +246,21 @@ Respond ONLY with valid JSON. Make the documentation detailed, professional, and
     throw new Error('No response from Groq');
   }
 
-  // Parse JSON response
+  // Parse JSON response with robust handling
   try {
-    // Extract JSON from response (handle markdown code blocks)
-    let jsonStr = content;
-    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+    let jsonStr = content.trim();
+
+    // Remove markdown code blocks if present
+    const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (jsonMatch) {
-      jsonStr = jsonMatch[1];
+      jsonStr = jsonMatch[1].trim();
+    }
+
+    // Find JSON object boundaries
+    const startIdx = jsonStr.indexOf('{');
+    const endIdx = jsonStr.lastIndexOf('}');
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+      jsonStr = jsonStr.slice(startIdx, endIdx + 1);
     }
 
     const parsed = JSON.parse(jsonStr);
@@ -258,12 +269,21 @@ Respond ONLY with valid JSON. Make the documentation detailed, professional, and
       gettingStarted: parsed.gettingStarted || '# Getting Started\n\nNo guide generated.',
       apiDocs: parsed.apiDocs || '# API Documentation\n\nNo API docs generated.',
     };
-  } catch {
-    // If JSON parsing fails, return the raw content as README
+  } catch (parseError) {
+    console.error('JSON parse error:', parseError);
+    // If JSON parsing fails, try to extract content using regex
+    const readmeMatch = content.match(/"readme"\s*:\s*"([\s\S]*?)(?:"\s*,|\}\s*$)/);
+    const gettingStartedMatch = content.match(/"gettingStarted"\s*:\s*"([\s\S]*?)(?:"\s*,|\}\s*$)/);
+    const apiDocsMatch = content.match(/"apiDocs"\s*:\s*"([\s\S]*?)(?:"\s*,|\}\s*$)/);
+
     return {
-      readme: content,
-      gettingStarted: '# Getting Started\n\nCould not generate structured guide.',
-      apiDocs: '# API Documentation\n\nCould not generate API docs.',
+      readme: readmeMatch ? readmeMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') : content,
+      gettingStarted: gettingStartedMatch
+        ? gettingStartedMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"')
+        : '# Getting Started\n\nCould not generate structured guide.',
+      apiDocs: apiDocsMatch
+        ? apiDocsMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"')
+        : '# API Documentation\n\nCould not generate API docs.',
     };
   }
 }
